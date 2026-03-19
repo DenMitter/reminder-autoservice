@@ -21,7 +21,7 @@ class ProcessPendingReminders extends Command
      *
      * @var string
      */
-    protected $description = 'Send all pending reminders that are due';
+    protected $description = 'Надіслати всі заплановані нагадування, час яких настав';
 
     /**
      * Execute the console command.
@@ -38,7 +38,7 @@ class ProcessPendingReminders extends Command
             $smsService->send($reminder);
         }
 
-        $this->info("Processed {$pendingReminders->count()} reminders.");
+        $this->info("Оброблено нагадувань: {$pendingReminders->count()}.");
 
         return self::SUCCESS;
     }

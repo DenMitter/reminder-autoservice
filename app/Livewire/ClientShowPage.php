@@ -7,7 +7,7 @@ use Illuminate\Contracts\View\View;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
-#[Title('Client details')]
+#[Title('Картка клієнта')]
 class ClientShowPage extends Component
 {
     public Client $client;

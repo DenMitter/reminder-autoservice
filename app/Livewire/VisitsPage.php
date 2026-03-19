@@ -9,28 +9,35 @@ use App\Enums\VisitStatus;
 use App\Models\Client;
 use App\Models\Reminder;
 use App\Models\Visit;
-use Illuminate\Support\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Contracts\View\View;
+use Illuminate\Support\Carbon;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 use Livewire\WithPagination;
 
-#[Title('Visits')]
+#[Title('Візити')]
 class VisitsPage extends Component
 {
     use WithPagination;
 
     public int $clientId = 0;
+
     public string $serviceType = '';
+
     public string $visitDate = '';
+
     public ?string $price = null;
+
     public string $status = 'planned';
+
     public ?string $nextServiceDate = null;
+
     public ?string $notes = null;
 
     public bool $createAppointmentReminder = true;
+
     public ?string $appointmentReminderDate = null;
 
     /**

@@ -17,18 +17,23 @@ use Livewire\Attributes\Title;
 use Livewire\Component;
 use Livewire\WithPagination;
 
-#[Title('Reminders')]
+#[Title('Нагадування')]
 class RemindersPage extends Component
 {
     use WithPagination;
 
     public string $search = '';
+
     public string $statusFilter = '';
 
     public int $clientId = 0;
+
     public ?int $visitId = null;
+
     public string $type = 'appointment';
+
     public string $sendAt = '';
+
     public string $message = '';
 
     public function mount(): void

@@ -14,7 +14,7 @@ use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
-#[Title('Dashboard')]
+#[Title('Статистика')]
 class DashboardPage extends Component
 {
     public string $startDate = '';

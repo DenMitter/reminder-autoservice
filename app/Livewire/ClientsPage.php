@@ -10,20 +10,27 @@ use Livewire\Attributes\Title;
 use Livewire\Component;
 use Livewire\WithPagination;
 
-#[Title('Clients')]
+#[Title('Клієнти')]
 class ClientsPage extends Component
 {
     use WithPagination;
 
     public string $search = '';
+
     public bool $showClientModal = false;
+
     public ?int $editingClientId = null;
 
     public string $fullName = '';
+
     public string $phone = '';
+
     public string $carBrand = '';
+
     public string $carModel = '';
+
     public ?string $carNumber = null;
+
     public ?string $notes = null;
 
     public function updatedSearch(): void

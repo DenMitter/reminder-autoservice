@@ -48,7 +48,7 @@
         </flux:field>
 
         <div class="mt-4 flex justify-end">
-            <flux:button variant="primary" wire:click="createReminder">Створити reminder</flux:button>
+            <flux:button variant="primary" wire:click="createReminder">Створити нагадування</flux:button>
         </div>
     </div>
 
