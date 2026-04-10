@@ -54,7 +54,7 @@
             </flux:field>
 
             <flux:field>
-                <flux:label>Дата наступного ТО</flux:label>
+                <flux:label>Дата нагадування на повторне виконання послуги</flux:label>
                 <flux:input type="date" wire:model="nextServiceDate" />
                 <flux:error name="nextServiceDate" />
             </flux:field>

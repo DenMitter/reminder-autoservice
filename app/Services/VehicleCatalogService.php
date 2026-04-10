@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use App\Models\Client;
+use App\Models\ClientVehicle;
 
 class VehicleCatalogService
 {
@@ -13,7 +13,7 @@ class VehicleCatalogService
     {
         return collect(array_keys(config('vehicle-catalog.brands', [])))
             ->merge(
-                Client::query()
+                ClientVehicle::query()
                     ->whereNotNull('car_brand')
                     ->where('car_brand', '!=', '')
                     ->distinct()
@@ -38,7 +38,7 @@ class VehicleCatalogService
 
         return collect(config("vehicle-catalog.brands.{$brand}", []))
             ->merge(
-                Client::query()
+                ClientVehicle::query()
                     ->where('car_brand', $brand)
                     ->whereNotNull('car_model')
                     ->where('car_model', '!=', '')

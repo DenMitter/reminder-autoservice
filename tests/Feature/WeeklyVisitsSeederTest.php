@@ -26,6 +26,13 @@ class WeeklyVisitsSeederTest extends TestCase
                 ->count(),
         );
 
+        $this->assertSame(
+            8,
+            Visit::query()
+                ->whereNotNull('client_vehicle_id')
+                ->count(),
+        );
+
         $this->assertDatabaseHas('visits', [
             'service_type' => 'Планове ТО',
         ]);

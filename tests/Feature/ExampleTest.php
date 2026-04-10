@@ -17,12 +17,12 @@ class ExampleTest extends TestCase
         $response->assertRedirect(route('login'));
     }
 
-    public function test_authenticated_users_are_redirected_from_home_to_dashboard(): void
+    public function test_authenticated_users_are_redirected_from_home_to_visits_schedule(): void
     {
         $user = User::factory()->create();
 
         $response = $this->actingAs($user)->get(route('home'));
 
-        $response->assertRedirect(route('dashboard'));
+        $response->assertRedirect(route('visits.schedule'));
     }
 }

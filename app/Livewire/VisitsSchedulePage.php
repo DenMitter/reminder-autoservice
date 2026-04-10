@@ -2,12 +2,14 @@
 
 namespace App\Livewire;
 
+use App\Enums\ReminderType;
 use App\Enums\VisitStatus;
 use App\Models\Client;
+use App\Models\ClientVehicle;
 use App\Models\ServiceCatalogItem;
 use App\Models\Visit;
-use App\Services\VisitReminderService;
 use App\Services\VehicleCatalogService;
+use App\Services\VisitReminderService;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
@@ -20,12 +22,18 @@ use Livewire\Component;
 class VisitsSchedulePage extends Component
 {
     private const SCHEDULE_START_HOUR = 8;
+
     private const SCHEDULE_END_HOUR = 20;
+
     private const SLOT_MINUTES = 30;
-    private const SLOT_HEIGHT = 48;
+
     private const CUSTOM_BRAND = '__custom_brand__';
+
     private const CUSTOM_MODEL = '__custom_model__';
+
     private const CUSTOM_SERVICE = '__custom_service__';
+
+    private const NEW_VEHICLE = '__new_vehicle__';
 
     public string $weekStartsAt = '';
 
@@ -44,6 +52,8 @@ class VisitsSchedulePage extends Component
     public string $clientMode = 'new';
 
     public ?int $existingClientId = null;
+
+    public string $existingVehicleId = '';
 
     public string $fullName = '';
 
@@ -69,6 +79,12 @@ class VisitsSchedulePage extends Component
 
     public bool $cameFromReminder = false;
 
+    public ?string $nextServiceDate = null;
+
+    public ?string $nextServiceReminderMessage = null;
+
+    public bool $nextServiceReminderMessageCustomized = false;
+
     public ?string $visitNotes = null;
 
     public string $editServiceType = '';
@@ -78,6 +94,12 @@ class VisitsSchedulePage extends Component
     public string $editStatus = 'planned';
 
     public bool $editCameFromReminder = false;
+
+    public ?string $editNextServiceDate = null;
+
+    public ?string $editNextServiceReminderMessage = null;
+
+    public bool $editNextServiceReminderMessageCustomized = false;
 
     public ?string $editPrice = null;
 
@@ -118,6 +140,9 @@ class VisitsSchedulePage extends Component
         $this->customServiceType = null;
         $this->price = null;
         $this->cameFromReminder = false;
+        $this->nextServiceDate = null;
+        $this->nextServiceReminderMessage = null;
+        $this->nextServiceReminderMessageCustomized = false;
         $this->visitNotes = null;
         $this->existingClientId = null;
         $this->fullName = '';
@@ -128,6 +153,7 @@ class VisitsSchedulePage extends Component
         $this->customCarModel = null;
         $this->carNumber = null;
         $this->clientMode = 'new';
+        $this->existingVehicleId = '';
         $this->showBookingModal = true;
     }
 
@@ -143,7 +169,7 @@ class VisitsSchedulePage extends Component
             return;
         }
 
-        if (! in_array($this->carModel, $this->availableModels, true)) {
+        if (! in_array($this->carModel, $this->availableModels(), true)) {
             $this->carModel = '';
         }
 
@@ -161,7 +187,7 @@ class VisitsSchedulePage extends Component
 
     public function useExistingClientFromPhoneMatch(): void
     {
-        $matchingClient = $this->matchingClientByPhone;
+        $matchingClient = $this->matchingClientByPhone();
 
         if ($matchingClient === null) {
             return;
@@ -169,14 +195,44 @@ class VisitsSchedulePage extends Component
 
         $this->clientMode = 'existing';
         $this->existingClientId = $matchingClient->id;
-        $this->fullName = '';
-        $this->phone = '';
-        $this->carBrand = '';
-        $this->carModel = '';
-        $this->customCarBrand = null;
-        $this->customCarModel = null;
-        $this->carNumber = null;
+        $this->existingVehicleId = $matchingClient->vehicles->first()?->id !== null
+            ? (string) $matchingClient->vehicles->first()->id
+            : self::NEW_VEHICLE;
+        $this->resetClientVehicleInputs();
         $this->resetValidation();
+    }
+
+    public function updatedExistingClientId(?int $value): void
+    {
+        if ($value === null) {
+            $this->existingVehicleId = '';
+            $this->resetClientVehicleInputs();
+
+            return;
+        }
+
+        $client = Client::query()
+            ->with('vehicles')
+            ->find($value);
+
+        if ($client === null) {
+            $this->existingVehicleId = '';
+
+            return;
+        }
+
+        $this->existingVehicleId = $client->vehicles->first()?->id !== null
+            ? (string) $client->vehicles->first()->id
+            : self::NEW_VEHICLE;
+
+        $this->resetClientVehicleInputs();
+    }
+
+    public function updatedExistingVehicleId(string $value): void
+    {
+        if ($value !== self::NEW_VEHICLE) {
+            $this->resetClientVehicleInputs();
+        }
     }
 
     public function updatedServiceType(string $value): void
@@ -187,6 +243,7 @@ class VisitsSchedulePage extends Component
 
         if ($value === '' || $value === self::CUSTOM_SERVICE) {
             $this->price = null;
+            $this->syncRepeatReminderMessage();
 
             return;
         }
@@ -196,6 +253,39 @@ class VisitsSchedulePage extends Component
         if ($defaultPrice !== null) {
             $this->price = $defaultPrice;
         }
+
+        $this->syncRepeatReminderMessage();
+    }
+
+    public function updatedCustomServiceType(?string $value): void
+    {
+        unset($value);
+
+        $this->syncRepeatReminderMessage();
+    }
+
+    public function updatedNextServiceDate(?string $value): void
+    {
+        if (blank($value)) {
+            $this->nextServiceReminderMessage = null;
+            $this->nextServiceReminderMessageCustomized = false;
+
+            return;
+        }
+
+        $this->nextServiceReminderMessage = $this->defaultRepeatReminderMessage();
+        $this->nextServiceReminderMessageCustomized = false;
+    }
+
+    public function updatedNextServiceReminderMessage(?string $value): void
+    {
+        if (blank($this->nextServiceDate)) {
+            $this->nextServiceReminderMessageCustomized = false;
+
+            return;
+        }
+
+        $this->nextServiceReminderMessageCustomized = trim((string) $value) !== $this->defaultRepeatReminderMessage();
     }
 
     public function updatedEditServiceType(string $value): void
@@ -206,6 +296,7 @@ class VisitsSchedulePage extends Component
 
         if ($value === '' || $value === self::CUSTOM_SERVICE) {
             $this->editPrice = null;
+            $this->syncEditRepeatReminderMessage();
 
             return;
         }
@@ -215,12 +306,48 @@ class VisitsSchedulePage extends Component
         if ($defaultPrice !== null) {
             $this->editPrice = $defaultPrice;
         }
+
+        $this->syncEditRepeatReminderMessage();
+    }
+
+    public function updatedEditCustomServiceType(?string $value): void
+    {
+        unset($value);
+
+        $this->syncEditRepeatReminderMessage();
+    }
+
+    public function updatedEditNextServiceDate(?string $value): void
+    {
+        if (blank($value)) {
+            $this->editNextServiceReminderMessage = null;
+            $this->editNextServiceReminderMessageCustomized = false;
+
+            return;
+        }
+
+        $this->editNextServiceReminderMessage = $this->defaultRepeatReminderMessage(editing: true);
+        $this->editNextServiceReminderMessageCustomized = false;
+    }
+
+    public function updatedEditNextServiceReminderMessage(?string $value): void
+    {
+        if (blank($this->editNextServiceDate)) {
+            $this->editNextServiceReminderMessageCustomized = false;
+
+            return;
+        }
+
+        $this->editNextServiceReminderMessageCustomized = trim((string) $value) !== $this->defaultRepeatReminderMessage(editing: true);
     }
 
     public function openVisitDetails(int $visitId): void
     {
         $visit = Visit::query()
-            ->with('client')
+            ->with([
+                'client',
+                'reminders' => fn ($query) => $query->where('type', ReminderType::RepeatService),
+            ])
             ->findOrFail($visitId);
 
         $visitEnd = $visit->visit_end_at ?? $visit->visit_date->copy()->addHour();
@@ -230,6 +357,12 @@ class VisitsSchedulePage extends Component
         $this->editCustomServiceType = null;
         $this->editStatus = $visit->status->value;
         $this->editCameFromReminder = $visit->came_from_reminder;
+        $this->editNextServiceDate = $visit->next_service_date?->toDateString();
+        $this->editNextServiceReminderMessage = $visit->next_service_date !== null
+            ? ($visit->reminders->first()?->message ?? $this->defaultRepeatReminderMessageForService($visit->service_type))
+            : null;
+        $this->editNextServiceReminderMessageCustomized = $this->editNextServiceReminderMessage !== null
+            && $this->editNextServiceReminderMessage !== $this->defaultRepeatReminderMessageForService($visit->service_type);
         $this->editPrice = $visit->price !== null ? (string) $visit->price : null;
         $this->editStartTime = $visit->visit_date->format('H:i');
         $this->editEndTime = $visitEnd->format('H:i');
@@ -247,6 +380,9 @@ class VisitsSchedulePage extends Component
             'editCustomServiceType',
             'editStatus',
             'editCameFromReminder',
+            'editNextServiceDate',
+            'editNextServiceReminderMessage',
+            'editNextServiceReminderMessageCustomized',
             'editPrice',
             'editStartTime',
             'editEndTime',
@@ -315,6 +451,8 @@ class VisitsSchedulePage extends Component
             'editCustomServiceType' => ['nullable', 'string', 'max:255'],
             'editStatus' => ['required', 'in:planned,completed,cancelled'],
             'editCameFromReminder' => ['boolean'],
+            'editNextServiceDate' => ['nullable', 'date'],
+            'editNextServiceReminderMessage' => ['nullable', 'string', 'max:1000'],
             'editPrice' => ['nullable', 'numeric', 'min:0'],
             'editStartTime' => ['required', 'date_format:H:i'],
             'editEndTime' => ['required', 'date_format:H:i'],
@@ -344,13 +482,17 @@ class VisitsSchedulePage extends Component
             'service_type' => $serviceType,
             'status' => $validated['editStatus'],
             'came_from_reminder' => (bool) $validated['editCameFromReminder'],
+            'next_service_date' => $validated['editNextServiceDate'],
             'price' => $validated['editPrice'],
             'visit_date' => $visitStart,
             'visit_end_at' => $visitEnd,
             'notes' => $validated['editVisitNotes'],
         ]);
 
-        app(VisitReminderService::class)->syncAppointmentReminder($visit->fresh());
+        $visit = $visit->fresh();
+
+        app(VisitReminderService::class)->syncAppointmentReminder($visit);
+        app(VisitReminderService::class)->syncRepeatServiceReminder($visit, $validated['editNextServiceReminderMessage']);
 
         $this->openVisitDetails($visit->id);
     }
@@ -381,7 +523,7 @@ class VisitsSchedulePage extends Component
         $this->storeCustomServiceIfNeeded($validated['price']);
 
         $client = $this->clientMode === 'existing'
-            ? Client::query()->findOrFail($validated['existingClientId'])
+            ? Client::query()->with('vehicles')->findOrFail($validated['existingClientId'])
             : Client::query()->create([
                 'full_name' => $validated['fullName'],
                 'phone' => $validated['phone'],
@@ -391,18 +533,29 @@ class VisitsSchedulePage extends Component
                 'notes' => null,
             ]);
 
+        $clientVehicle = $this->clientMode === 'existing'
+            ? $this->resolveExistingClientVehicle($client)
+            : $client->vehicles()->create([
+                'car_brand' => $this->resolvedCarBrand(),
+                'car_model' => $this->resolvedCarModel(),
+                'car_number' => $validated['carNumber'],
+            ]);
+
         $visit = Visit::query()->create([
             'client_id' => $client->id,
+            'client_vehicle_id' => $clientVehicle->id,
             'service_type' => $serviceType,
             'visit_date' => $visitStart,
             'visit_end_at' => $visitEnd,
             'price' => $validated['price'],
             'status' => $validated['status'],
+            'next_service_date' => $validated['nextServiceDate'],
             'notes' => $validated['visitNotes'],
             'came_from_reminder' => (bool) $validated['cameFromReminder'],
         ]);
 
         app(VisitReminderService::class)->syncAppointmentReminder($visit);
+        app(VisitReminderService::class)->syncRepeatServiceReminder($visit, $validated['nextServiceReminderMessage'] ?? null);
 
         $this->closeBookingModal();
     }
@@ -416,6 +569,7 @@ class VisitsSchedulePage extends Component
             'selectedStartTime',
             'selectedEndTime',
             'existingClientId',
+            'existingVehicleId',
             'fullName',
             'phone',
             'carBrand',
@@ -427,6 +581,9 @@ class VisitsSchedulePage extends Component
             'customServiceType',
             'price',
             'cameFromReminder',
+            'nextServiceDate',
+            'nextServiceReminderMessage',
+            'nextServiceReminderMessageCustomized',
             'visitNotes',
         ]);
 
@@ -449,13 +606,26 @@ class VisitsSchedulePage extends Component
             'price' => ['nullable', 'numeric', 'min:0'],
             'status' => ['required', 'in:planned,completed,cancelled'],
             'cameFromReminder' => ['boolean'],
+            'nextServiceDate' => ['nullable', 'date'],
+            'nextServiceReminderMessage' => ['nullable', 'string', 'max:1000'],
             'visitNotes' => ['nullable', 'string', 'max:5000'],
         ];
 
         if ($this->clientMode === 'existing') {
             $rules['existingClientId'] = ['required', 'exists:clients,id'];
+            $rules['existingVehicleId'] = ['required', 'string'];
 
-            return $rules;
+            if (! $this->shouldCollectVehicleDetails()) {
+                return $rules;
+            }
+
+            return array_merge($rules, [
+                'carBrand' => ['required', 'string', 'max:255'],
+                'carModel' => ['required', 'string', 'max:255'],
+                'customCarBrand' => ['nullable', 'string', 'max:255'],
+                'customCarModel' => ['nullable', 'string', 'max:255'],
+                'carNumber' => ['nullable', 'string', 'max:255'],
+            ]);
         }
 
         return array_merge($rules, [
@@ -476,6 +646,7 @@ class VisitsSchedulePage extends Component
     public function clients(): Collection
     {
         return Client::query()
+            ->with('vehicles')
             ->orderBy('full_name')
             ->get();
     }
@@ -494,10 +665,53 @@ class VisitsSchedulePage extends Component
         }
 
         return Client::query()
+            ->with('vehicles')
             ->get()
             ->first(function (Client $client) use ($normalizedPhone): bool {
                 return $this->normalizePhone($client->phone) === $normalizedPhone;
             });
+    }
+
+    /**
+     * @return Collection<int, ClientVehicle>
+     */
+    #[Computed]
+    public function existingClientVehicles(): Collection
+    {
+        $selectedExistingClient = $this->selectedExistingClient();
+
+        if ($selectedExistingClient === null) {
+            return new Collection;
+        }
+
+        return $selectedExistingClient->vehicles;
+    }
+
+    #[Computed]
+    public function selectedExistingClient(): ?Client
+    {
+        if ($this->existingClientId === null) {
+            return null;
+        }
+
+        return $this->clients()->firstWhere('id', $this->existingClientId);
+    }
+
+    #[Computed]
+    public function shouldCollectVehicleDetails(): bool
+    {
+        if ($this->clientMode === 'new') {
+            return true;
+        }
+
+        return $this->clientMode === 'existing'
+            && ($this->existingVehicleId === self::NEW_VEHICLE || $this->existingClientVehicles()->isEmpty());
+    }
+
+    #[Computed]
+    public function newVehicleValue(): string
+    {
+        return self::NEW_VEHICLE;
     }
 
     /**
@@ -567,7 +781,7 @@ class VisitsSchedulePage extends Component
     #[Computed]
     public function editServiceCatalog(): array
     {
-        $services = $this->serviceCatalog;
+        $services = $this->serviceCatalog();
 
         if ($this->editServiceType !== '' && $this->editServiceType !== self::CUSTOM_SERVICE) {
             $services[$this->editServiceType] ??= $this->editPrice;
@@ -663,7 +877,7 @@ class VisitsSchedulePage extends Component
         $weekEnd = $weekStart->addWeek();
 
         return Visit::query()
-            ->with('client')
+            ->with(['client', 'clientVehicle'])
             ->where('visit_date', '<', $weekEnd)
             ->where(function ($query) use ($weekStart): void {
                 $query
@@ -691,12 +905,12 @@ class VisitsSchedulePage extends Component
         }
 
         return Visit::query()
-            ->with('client')
+            ->with(['client', 'clientVehicle'])
             ->find($this->selectedVisitId);
     }
 
     /**
-     * @return array{id: int, date: string, start: string, end: string, top: int, height: int, client: string, service: string, time: string, status: string, compact: bool}
+     * @return array{id: int, date: string, start: string, end: string, topSlots: int, heightSlots: int, client: string, service: string, time: string, status: string, compact: bool, showService: bool}
      */
     private function mapVisitToScheduleBlock(Visit $visit): array
     {
@@ -707,29 +921,30 @@ class VisitsSchedulePage extends Component
         $visibleStart = $visit->visit_date->greaterThan($scheduleStart) ? $visit->visit_date : $scheduleStart;
         $visibleEnd = $visitEnd->lessThan($scheduleEnd) ? $visitEnd : $scheduleEnd;
 
-        $top = max(
+        $topSlots = max(
             0,
-            (int) floor($scheduleStart->diffInMinutes($visibleStart) / self::SLOT_MINUTES) * self::SLOT_HEIGHT,
+            (int) floor($scheduleStart->diffInMinutes($visibleStart) / self::SLOT_MINUTES),
         );
 
-        $height = max(
-            self::SLOT_HEIGHT,
-            (int) ceil($visibleStart->diffInMinutes($visibleEnd) / self::SLOT_MINUTES) * self::SLOT_HEIGHT,
+        $heightSlots = max(
+            1,
+            (int) ceil($visibleStart->diffInMinutes($visibleEnd) / self::SLOT_MINUTES),
         );
 
-        $isCompact = $height <= self::SLOT_HEIGHT;
+        $isCompact = $heightSlots <= 2;
 
         return [
             'id' => $visit->id,
             'date' => $visit->visit_date->toDateString(),
             'start' => $visit->visit_date->format('H:i'),
             'end' => $visitEnd->format('H:i'),
-            'top' => $top,
-            'height' => $height,
+            'topSlots' => $topSlots,
+            'heightSlots' => $heightSlots,
             'client' => $visit->client->full_name,
             'service' => $visit->service_type,
             'status' => $visit->status->value,
             'compact' => $isCompact,
+            'showService' => $heightSlots >= 4,
             'time' => sprintf(
                 '%s - %s',
                 $visit->visit_date->format('H:i'),
@@ -740,11 +955,11 @@ class VisitsSchedulePage extends Component
 
     private function validateVehicleSelection(): void
     {
-        if ($this->clientMode !== 'new') {
+        if (! $this->shouldCollectVehicleDetails()) {
             return;
         }
 
-        if ($this->carBrand !== self::CUSTOM_BRAND && ! in_array($this->carBrand, $this->vehicleBrands, true)) {
+        if ($this->carBrand !== self::CUSTOM_BRAND && ! in_array($this->carBrand, $this->vehicleBrands(), true)) {
             $this->addError('carBrand', 'Оберіть марку зі списку або додайте нову.');
         }
 
@@ -755,12 +970,12 @@ class VisitsSchedulePage extends Component
         if (
             $this->carBrand !== self::CUSTOM_BRAND
             && $this->carModel !== self::CUSTOM_MODEL
-            && ! in_array($this->carModel, $this->availableModels, true)
+            && ! in_array($this->carModel, $this->availableModels(), true)
         ) {
             $this->addError('carModel', 'Оберіть модель зі списку або додайте нову.');
         }
 
-        if ($this->customModelSelected && blank($this->customCarModel)) {
+        if ($this->customModelSelected() && blank($this->customCarModel)) {
             $this->addError('customCarModel', 'Вкажіть нову модель авто.');
         }
 
@@ -775,10 +990,10 @@ class VisitsSchedulePage extends Component
         $customServiceField = $editing ? 'editCustomServiceType' : 'customServiceType';
         $selectedService = $editing ? $this->editServiceType : $this->serviceType;
         $customService = $editing ? $this->editCustomServiceType : $this->customServiceType;
-        $availableServices = $editing ? $this->editServiceCatalog : $this->serviceCatalog;
+        $availableServices = $editing ? $this->editServiceCatalog() : $this->serviceCatalog();
 
         if ($selectedService === self::CUSTOM_SERVICE) {
-            if (! $this->canManageServiceCatalog) {
+            if (! $this->canManageServiceCatalog()) {
                 $this->addError($serviceField, 'Лише адміністратор може додавати нові послуги.');
             }
 
@@ -807,7 +1022,7 @@ class VisitsSchedulePage extends Component
     {
         $selectedService = $editing ? $this->editServiceType : $this->serviceType;
 
-        if ($selectedService !== self::CUSTOM_SERVICE || ! $this->canManageServiceCatalog) {
+        if ($selectedService !== self::CUSTOM_SERVICE || ! $this->canManageServiceCatalog()) {
             return;
         }
 
@@ -828,7 +1043,35 @@ class VisitsSchedulePage extends Component
             return null;
         }
 
-        return $this->serviceCatalog[$serviceName] ?? null;
+        return $this->serviceCatalog()[$serviceName] ?? null;
+    }
+
+    private function defaultRepeatReminderMessage(bool $editing = false): string
+    {
+        return $this->defaultRepeatReminderMessageForService($this->resolvedServiceType($editing));
+    }
+
+    private function defaultRepeatReminderMessageForService(string $serviceType): string
+    {
+        return app(VisitReminderService::class)->repeatServiceMessageForService($serviceType);
+    }
+
+    private function syncRepeatReminderMessage(): void
+    {
+        if (blank($this->nextServiceDate) || $this->nextServiceReminderMessageCustomized) {
+            return;
+        }
+
+        $this->nextServiceReminderMessage = $this->defaultRepeatReminderMessage();
+    }
+
+    private function syncEditRepeatReminderMessage(): void
+    {
+        if (blank($this->editNextServiceDate) || $this->editNextServiceReminderMessageCustomized) {
+            return;
+        }
+
+        $this->editNextServiceReminderMessage = $this->defaultRepeatReminderMessage(editing: true);
     }
 
     private function normalizePhone(?string $phone): string
@@ -847,10 +1090,43 @@ class VisitsSchedulePage extends Component
 
     private function resolvedCarModel(): string
     {
-        if ($this->customModelSelected) {
+        if ($this->customModelSelected()) {
             return trim((string) $this->customCarModel);
         }
 
         return $this->carModel;
+    }
+
+    private function resolveExistingClientVehicle(Client $client): ClientVehicle
+    {
+        if ($this->shouldCollectVehicleDetails()) {
+            $hadVehicles = $client->vehicles()->exists();
+
+            $clientVehicle = $client->vehicles()->create([
+                'car_brand' => $this->resolvedCarBrand(),
+                'car_model' => $this->resolvedCarModel(),
+                'car_number' => $this->carNumber,
+            ]);
+
+            if (! $hadVehicles) {
+                $client->syncPrimaryVehicleAttributes();
+            }
+
+            return $clientVehicle;
+        }
+
+        return $client->vehicles()
+            ->findOrFail((int) $this->existingVehicleId);
+    }
+
+    private function resetClientVehicleInputs(): void
+    {
+        $this->fullName = '';
+        $this->phone = '';
+        $this->carBrand = '';
+        $this->carModel = '';
+        $this->customCarBrand = null;
+        $this->customCarModel = null;
+        $this->carNumber = null;
     }
 }

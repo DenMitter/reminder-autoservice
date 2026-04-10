@@ -20,7 +20,9 @@ class ClientShowPage extends Component
     public function render(): View
     {
         $client = $this->client->load([
-            'visits' => fn ($query) => $query->latest('visit_date'),
+            'vehicles',
+            'primaryVehicle',
+            'visits' => fn ($query) => $query->with('clientVehicle')->latest('visit_date'),
             'reminders' => fn ($query) => $query->latest('send_at'),
         ]);
 

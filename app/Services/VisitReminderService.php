@@ -66,6 +66,59 @@ class VisitReminderService
         $this->syncConfirmationReminder($visit, $confirmationReminder);
     }
 
+    public function syncRepeatServiceReminder(Visit $visit, ?string $customMessage = null): void
+    {
+        $repeatServiceReminder = Reminder::query()->firstOrNew([
+            'visit_id' => $visit->id,
+            'type' => ReminderType::RepeatService,
+        ]);
+
+        if ($visit->status !== VisitStatus::Completed || $visit->next_service_date === null) {
+            if ($repeatServiceReminder->exists) {
+                $repeatServiceReminder->delete();
+            }
+
+            return;
+        }
+
+        $sendAt = $visit->next_service_date->copy()->startOfDay();
+        $message = filled($customMessage)
+            ? trim((string) $customMessage)
+            : $this->buildRepeatServiceMessage($visit);
+        $shouldResetReminder = ! $repeatServiceReminder->exists
+            || $repeatServiceReminder->client_id !== $visit->client_id
+            || ! $repeatServiceReminder->send_at?->equalTo($sendAt)
+            || $repeatServiceReminder->message !== $message;
+
+        $repeatServiceReminder->fill([
+            'client_id' => $visit->client_id,
+            'send_at' => $sendAt,
+            'message' => $message,
+            'response_status' => ReminderResponseStatus::NoResponse,
+        ]);
+
+        if ($shouldResetReminder) {
+            $repeatServiceReminder->status = ReminderStatus::Pending;
+            $repeatServiceReminder->sent_at = null;
+        }
+
+        $repeatServiceReminder->save();
+    }
+
+    public function repeatServiceMessageForService(string $serviceType): string
+    {
+        $message = sprintf(
+            'Нагадуємо про %s',
+            $this->serviceReminderSubject($serviceType),
+        );
+
+        if (filled(config('app.name'))) {
+            $message .= ' на '.config('app.name');
+        }
+
+        return $message;
+    }
+
     private function syncConfirmationReminder(Visit $visit, Reminder $confirmationReminder): void
     {
         $message = $this->buildConfirmationMessage($visit);
@@ -131,5 +184,44 @@ class VisitReminderService
         }
 
         return implode("\n", $parts);
+    }
+
+    private function buildRepeatServiceMessage(Visit $visit): string
+    {
+        return $this->repeatServiceMessageForService($visit->service_type);
+    }
+
+    private function serviceReminderSubject(string $serviceType): string
+    {
+        $normalizedServiceType = preg_replace('/\s+/u', ' ', trim($serviceType)) ?? '';
+
+        if ($normalizedServiceType === '') {
+            return 'повторну послугу';
+        }
+
+        $segments = explode(' ', $normalizedServiceType);
+        $firstWord = mb_strtolower((string) array_shift($segments));
+        $remainingWords = implode(' ', $segments);
+        $transformedFirstWord = $this->toAccusativeForm($firstWord);
+        $servicePhrase = trim($transformedFirstWord.' '.$remainingWords);
+
+        if ($transformedFirstWord !== $firstWord) {
+            return 'повторну '.$servicePhrase;
+        }
+
+        return $servicePhrase;
+    }
+
+    private function toAccusativeForm(string $word): string
+    {
+        if (str_ends_with($word, 'я')) {
+            return mb_substr($word, 0, -1).'ю';
+        }
+
+        if (str_ends_with($word, 'а')) {
+            return mb_substr($word, 0, -1).'у';
+        }
+
+        return $word;
     }
 }

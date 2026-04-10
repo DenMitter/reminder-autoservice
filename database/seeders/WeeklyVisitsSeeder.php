@@ -96,8 +96,25 @@ class WeeklyVisitsSeeder extends Seeder
         foreach ($schedule as $item) {
             $client = Client::query()->updateOrCreate(
                 ['phone' => $item['client']['phone']],
-                $item['client'],
+                [
+                    'full_name' => $item['client']['full_name'],
+                    'phone' => $item['client']['phone'],
+                    'car_brand' => $item['client']['car_brand'],
+                    'car_model' => $item['client']['car_model'],
+                    'car_number' => $item['client']['car_number'],
+                    'notes' => null,
+                ],
             );
+
+            $clientVehicle = $client->vehicles()->firstOrCreate(
+                [
+                    'car_brand' => $item['client']['car_brand'],
+                    'car_model' => $item['client']['car_model'],
+                    'car_number' => $item['client']['car_number'],
+                ],
+            );
+
+            $client->syncPrimaryVehicleAttributes();
 
             $visitDate = $weekStart->addDays($item['day'])->setTimeFromTimeString($item['start']);
             $visitEnd = $weekStart->addDays($item['day'])->setTimeFromTimeString($item['end']);
@@ -109,6 +126,7 @@ class WeeklyVisitsSeeder extends Seeder
                 ],
                 [
                     'service_type' => $item['service'],
+                    'client_vehicle_id' => $clientVehicle->id,
                     'visit_end_at' => $visitEnd,
                     'price' => $services[$item['service']] ?? 1000,
                     'status' => $item['status'],

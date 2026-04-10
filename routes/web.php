@@ -9,7 +9,7 @@ use App\Livewire\VisitsSchedulePage;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
-    return redirect()->route(auth()->check() ? 'dashboard' : 'login');
+    return redirect()->route(auth()->check() ? 'visits.schedule' : 'login');
 })->name('home');
 
 Route::middleware(['auth'])->group(function () {

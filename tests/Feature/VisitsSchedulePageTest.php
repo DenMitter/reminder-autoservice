@@ -11,6 +11,7 @@ use App\Models\ServiceCatalogItem;
 use App\Models\User;
 use App\Models\Visit;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Route;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -45,11 +46,17 @@ class VisitsSchedulePageTest extends TestCase
             ->assertRedirect(route('visits.schedule'));
     }
 
+    public function test_create_visit_page_route_is_not_registered(): void
+    {
+        $this->assertFalse(Route::has('visits.create'));
+    }
+
     public function test_visit_can_be_created_for_an_existing_client_from_the_schedule(): void
     {
         $this->actingAs(User::factory()->create());
 
         $client = Client::factory()->create();
+        $clientVehicle = $client->vehicles()->firstOrFail();
         $service = ServiceCatalogItem::factory()->create([
             'name' => 'Діагностика',
             'default_price' => 1200,
@@ -69,6 +76,7 @@ class VisitsSchedulePageTest extends TestCase
 
         $this->assertNotNull($visit);
         $this->assertSame($client->id, $visit->client_id);
+        $this->assertSame($clientVehicle->id, $visit->client_vehicle_id);
         $this->assertSame('Діагностика', $visit->service_type);
         $this->assertTrue($visit->came_from_reminder);
         $this->assertSame('10:00', $visit->visit_date->format('H:i'));
@@ -114,8 +122,116 @@ class VisitsSchedulePageTest extends TestCase
             'car_model' => 'X5',
         ]);
 
+        $this->assertDatabaseHas('client_vehicles', [
+            'car_brand' => 'BMW',
+            'car_model' => 'X5',
+        ]);
+
         $this->assertDatabaseHas('visits', [
             'service_type' => 'Планове ТО',
+        ]);
+    }
+
+    public function test_completed_visit_can_be_created_with_repeat_service_reminder_from_the_schedule(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $nextServiceDate = now()->addMonths(2)->toDateString();
+
+        ServiceCatalogItem::factory()->create([
+            'name' => 'Заміна масла',
+            'default_price' => 2200,
+        ]);
+
+        Livewire::test(VisitsSchedulePage::class)
+            ->call('openCreateModal', now()->startOfWeek()->addDay()->toDateString(), '12:00', '13:00')
+            ->set('fullName', 'Іван Петренко')
+            ->set('phone', '+380991112233')
+            ->set('carBrand', 'BMW')
+            ->set('carModel', 'X5')
+            ->set('serviceType', 'Заміна масла')
+            ->set('status', 'completed')
+            ->set('nextServiceDate', $nextServiceDate)
+            ->assertSet('nextServiceReminderMessage', 'Нагадуємо про повторну заміну масла на Автомаксимум')
+            ->call('createVisit')
+            ->assertHasNoErrors();
+
+        $visit = Visit::query()->latest('id')->firstOrFail();
+
+        $this->assertSame($nextServiceDate, $visit->next_service_date?->toDateString());
+        $this->assertDatabaseHas('reminders', [
+            'visit_id' => $visit->id,
+            'client_id' => $visit->client_id,
+            'type' => ReminderType::RepeatService->value,
+            'send_at' => $visit->next_service_date?->copy()->startOfDay()->format('Y-m-d H:i:s'),
+            'message' => 'Нагадуємо про повторну заміну масла на Автомаксимум',
+            'status' => ReminderStatus::Pending->value,
+        ]);
+    }
+
+    public function test_repeat_service_reminder_message_can_be_customized_from_the_schedule(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $nextServiceDate = now()->addMonths(2)->toDateString();
+
+        ServiceCatalogItem::factory()->create([
+            'name' => 'Заміна масла',
+            'default_price' => 2200,
+        ]);
+
+        Livewire::test(VisitsSchedulePage::class)
+            ->call('openCreateModal', now()->startOfWeek()->addDay()->toDateString(), '12:00', '13:00')
+            ->set('fullName', 'Іван Петренко')
+            ->set('phone', '+380991112233')
+            ->set('carBrand', 'BMW')
+            ->set('carModel', 'X5')
+            ->set('serviceType', 'Заміна масла')
+            ->set('status', 'completed')
+            ->set('nextServiceDate', $nextServiceDate)
+            ->set('nextServiceReminderMessage', 'Нагадуємо про повторну заміну масла на Автомаксимум. Для запису телефонуйте нам.')
+            ->call('createVisit')
+            ->assertHasNoErrors();
+
+        $visit = Visit::query()->latest('id')->firstOrFail();
+
+        $this->assertDatabaseHas('reminders', [
+            'visit_id' => $visit->id,
+            'type' => ReminderType::RepeatService->value,
+            'message' => 'Нагадуємо про повторну заміну масла на Автомаксимум. Для запису телефонуйте нам.',
+        ]);
+    }
+
+    public function test_visit_can_be_created_for_existing_client_with_a_new_vehicle(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        $client = Client::factory()->create();
+        $existingVehicle = $client->vehicles()->firstOrFail();
+        $service = ServiceCatalogItem::factory()->create([
+            'name' => 'Діагностика',
+            'default_price' => 1200,
+        ]);
+
+        Livewire::test(VisitsSchedulePage::class)
+            ->call('openCreateModal', now()->addDay()->toDateString(), '10:00', '11:00')
+            ->set('clientMode', 'existing')
+            ->set('existingClientId', $client->id)
+            ->set('existingVehicleId', '__new_vehicle__')
+            ->set('carBrand', 'Audi')
+            ->set('carModel', 'Q7')
+            ->set('carNumber', 'AA0007TT')
+            ->set('serviceType', $service->name)
+            ->call('createVisit')
+            ->assertHasNoErrors();
+
+        $visit = Visit::query()->latest('id')->firstOrFail();
+
+        $this->assertSame($client->id, $visit->client_id);
+        $this->assertNotSame($existingVehicle->id, $visit->client_vehicle_id);
+        $this->assertDatabaseHas('client_vehicles', [
+            'client_id' => $client->id,
+            'car_brand' => 'Audi',
+            'car_model' => 'Q7',
+            'car_number' => 'AA0007TT',
         ]);
     }
 
@@ -264,6 +380,10 @@ class VisitsSchedulePageTest extends TestCase
             'car_brand' => 'Rivian',
             'car_model' => 'R1S',
         ]);
+        $this->assertDatabaseHas('client_vehicles', [
+            'car_brand' => 'Rivian',
+            'car_model' => 'R1S',
+        ]);
     }
 
     public function test_new_service_can_be_added_from_the_schedule_booking_form(): void
@@ -332,6 +452,7 @@ class VisitsSchedulePageTest extends TestCase
             ->set('editServiceType', 'Заміна масла')
             ->assertSet('editPrice', '1500.00')
             ->set('editStatus', 'completed')
+            ->assertSet('editNextServiceDate', now()->addMonth()->toDateString())
             ->set('editCameFromReminder', true)
             ->set('editStartTime', '09:30')
             ->set('editEndTime', '11:30')
@@ -351,6 +472,14 @@ class VisitsSchedulePageTest extends TestCase
         $this->assertSame('1500.00', (string) $visit->price);
         $this->assertSame('Оновлені нотатки', $visit->notes);
         $this->assertSame(now()->addMonth()->toDateString(), $visit->next_service_date?->toDateString());
+        $this->assertDatabaseHas('reminders', [
+            'visit_id' => $visit->id,
+            'client_id' => $visit->client_id,
+            'type' => ReminderType::RepeatService->value,
+            'send_at' => $visit->next_service_date?->copy()->startOfDay()->format('Y-m-d H:i:s'),
+            'message' => 'Нагадуємо про повторну заміну масла на Автомаксимум',
+            'status' => ReminderStatus::Pending->value,
+        ]);
     }
 
     public function test_new_service_can_be_added_from_visit_details(): void
@@ -472,6 +601,40 @@ class VisitsSchedulePageTest extends TestCase
         ]);
     }
 
+    public function test_repeat_service_reminder_is_removed_when_next_service_date_is_cleared(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        $visit = Visit::factory()->create([
+            'status' => 'completed',
+            'visit_date' => now()->startOfWeek()->setTime(10, 0),
+            'visit_end_at' => now()->startOfWeek()->setTime(11, 0),
+            'next_service_date' => now()->addMonth()->toDateString(),
+        ]);
+
+        Reminder::factory()->create([
+            'client_id' => $visit->client_id,
+            'visit_id' => $visit->id,
+            'type' => ReminderType::RepeatService,
+            'send_at' => $visit->next_service_date?->copy()->startOfDay(),
+        ]);
+
+        Livewire::test(VisitsSchedulePage::class)
+            ->call('openVisitDetails', $visit->id)
+            ->set('editServiceType', $visit->service_type)
+            ->set('editStatus', 'completed')
+            ->set('editNextServiceDate', null)
+            ->set('editStartTime', '10:00')
+            ->set('editEndTime', '11:00')
+            ->call('saveVisitDetails')
+            ->assertHasNoErrors();
+
+        $this->assertDatabaseMissing('reminders', [
+            'visit_id' => $visit->id,
+            'type' => ReminderType::RepeatService->value,
+        ]);
+    }
+
     public function test_schedule_blocks_use_background_colors_based_on_status(): void
     {
         $this->actingAs(User::factory()->create());
@@ -515,5 +678,69 @@ class VisitsSchedulePageTest extends TestCase
             ->assertOk()
             ->assertSee('data-compact="true"', false)
             ->assertSee('leading-tight', false);
+    }
+
+    public function test_ninety_minute_visit_prioritizes_client_name_over_service_description(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        $client = Client::factory()->create([
+            'full_name' => 'Сергій Кравець',
+        ]);
+
+        Visit::factory()->create([
+            'client_id' => $client->id,
+            'visit_date' => now()->startOfWeek()->setTime(13, 0),
+            'visit_end_at' => now()->startOfWeek()->setTime(14, 30),
+            'service_type' => 'Дуже довга назва послуги для перевірки картки',
+        ]);
+
+        $this->get(route('visits.schedule'))
+            ->assertOk()
+            ->assertSee('Сергій Кравець')
+            ->assertDontSee('Дуже довга назва послуги для перевірки картки');
+    }
+
+    public function test_schedule_grid_is_constrained_to_the_viewport_height(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        $this->get(route('visits.schedule'))
+            ->assertOk()
+            ->assertSee('flex min-h-dvh flex-col', false)
+            ->assertSee('flex h-full min-h-0 w-full flex-1 flex-col gap-6 overflow-hidden', false)
+            ->assertSee('grid-template-rows: repeat(', false)
+            ->assertSee('overflow-x-auto overflow-y-hidden', false);
+    }
+
+    public function test_schedule_page_renders_drag_preview_markup(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        $this->get(route('visits.schedule'))
+            ->assertOk()
+            ->assertSee('x-transition.opacity.duration.150ms', false)
+            ->assertSee('border-zinc-400 bg-zinc-200', false)
+            ->assertSee('movingHeightSlots', false)
+            ->assertSee('movePreviewStyle()', false)
+            ->assertSee('resizingClient', false)
+            ->assertSee('resizePreviewStyle()', false)
+            ->assertSee('resizePreviewTime()', false);
+    }
+
+    public function test_schedule_page_uses_modal_for_slot_selection(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        $this->get(route('visits.schedule'))
+            ->assertOk()
+            ->assertSee('$wire.openCreateModal(range.day, range.start, range.end);', false)
+            ->assertDontSee('createVisitBaseUrl', false)
+            ->assertDontSee('window.location.assign', false)
+            ->assertSee('wire:model.self="showBookingModal"', false)
+            ->assertSee('space-y-5 md:w-[760px]', false)
+            ->assertDontSee('w-[calc(100vw-2rem)]', false)
+            ->assertDontSee('h-[88dvh] max-h-[88dvh] flex-col bg-white', false)
+            ->assertDontSee('grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px]', false);
     }
 }

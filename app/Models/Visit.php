@@ -4,9 +4,9 @@ namespace App\Models;
 
 use App\Enums\VisitStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Model;
 
 class Visit extends Model
 {
@@ -18,6 +18,7 @@ class Visit extends Model
      */
     protected $fillable = [
         'client_id',
+        'client_vehicle_id',
         'service_type',
         'visit_date',
         'visit_end_at',
@@ -48,6 +49,11 @@ class Visit extends Model
     public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class);
+    }
+
+    public function clientVehicle(): BelongsTo
+    {
+        return $this->belongsTo(ClientVehicle::class);
     }
 
     public function reminders(): HasMany

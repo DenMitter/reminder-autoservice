@@ -9,6 +9,7 @@ use App\Enums\VisitStatus;
 use App\Models\Client;
 use App\Models\Reminder;
 use App\Models\Visit;
+use App\Services\VisitReminderService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Carbon;
@@ -93,9 +94,7 @@ class VisitsPage extends Component
             ]);
         }
 
-        if ($visit->status === VisitStatus::Completed && $visit->next_service_date !== null) {
-            $this->createOrUpdateRepeatServiceReminder($visit);
-        }
+        app(VisitReminderService::class)->syncRepeatServiceReminder($visit);
 
         $this->resetCreateForm();
     }
@@ -123,9 +122,7 @@ class VisitsPage extends Component
             'next_service_date' => $nextServiceDate,
         ]);
 
-        if ($visit->status === VisitStatus::Completed && $visit->next_service_date !== null) {
-            $this->createOrUpdateRepeatServiceReminder($visit);
-        }
+        app(VisitReminderService::class)->syncRepeatServiceReminder($visit->fresh());
     }
 
     #[Computed]
@@ -146,23 +143,6 @@ class VisitsPage extends Component
     public function render(): View
     {
         return view('livewire.visits-page');
-    }
-
-    private function createOrUpdateRepeatServiceReminder(Visit $visit): void
-    {
-        Reminder::query()->updateOrCreate(
-            [
-                'visit_id' => $visit->id,
-                'type' => ReminderType::RepeatService,
-            ],
-            [
-                'client_id' => $visit->client_id,
-                'send_at' => $visit->next_service_date,
-                'message' => "Нагадування про повторне ТО на {$visit->next_service_date->format('d.m.Y')}",
-                'status' => ReminderStatus::Pending,
-                'response_status' => ReminderResponseStatus::NoResponse,
-            ],
-        );
     }
 
     private function resetCreateForm(): void

@@ -8,7 +8,6 @@
         <div class="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
             <flux:text class="text-zinc-500">Телефон</flux:text>
             <flux:heading size="lg">{{ $client->phone }}</flux:heading>
-            <flux:text class="mt-2">{{ $client->car_brand }} {{ $client->car_model }} {{ $client->car_number }}</flux:text>
             @if($client->notes)
                 <flux:text class="mt-2">{{ $client->notes }}</flux:text>
             @endif
@@ -23,12 +22,29 @@
     </div>
 
     <div class="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
+        <flux:heading size="lg">Авто клієнта</flux:heading>
+        <div class="mt-4 grid gap-3 md:grid-cols-2">
+            @foreach($client->vehicles as $vehicle)
+                <div class="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800/60">
+                    <flux:text class="font-medium text-zinc-900 dark:text-zinc-100">
+                        {{ trim($vehicle->car_brand . ' ' . $vehicle->car_model) }}
+                    </flux:text>
+                    @if($vehicle->car_number)
+                        <flux:text class="mt-1 text-zinc-500">{{ $vehicle->car_number }}</flux:text>
+                    @endif
+                </div>
+            @endforeach
+        </div>
+    </div>
+
+    <div class="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
         <flux:heading size="lg">Історія візитів</flux:heading>
         <div class="mt-4 overflow-x-auto">
             <table class="min-w-full text-sm">
                 <thead>
                     <tr class="border-b border-zinc-200 text-left dark:border-zinc-700">
                         <th class="pb-2">Послуга</th>
+                        <th class="pb-2">Авто</th>
                         <th class="pb-2">Дата</th>
                         <th class="pb-2">Статус</th>
                         <th class="pb-2">Ціна</th>
@@ -38,13 +54,23 @@
                     @forelse($client->visits as $visit)
                         <tr wire:key="client-visit-{{ $visit->id }}" class="border-b border-zinc-100 dark:border-zinc-800">
                             <td class="py-2">{{ $visit->service_type }}</td>
+                            <td class="py-2">
+                                @if ($visit->clientVehicle)
+                                    {{ trim($visit->clientVehicle->car_brand . ' ' . $visit->clientVehicle->car_model) }}
+                                    @if ($visit->clientVehicle->car_number)
+                                        <span class="text-zinc-500">({{ $visit->clientVehicle->car_number }})</span>
+                                    @endif
+                                @else
+                                    —
+                                @endif
+                            </td>
                             <td class="py-2">{{ $visit->visit_date->format('d.m.Y H:i') }}</td>
                             <td class="py-2">{{ __($visit->status->value) }}</td>
                             <td class="py-2">{{ $visit->price }}</td>
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="4" class="py-4 text-zinc-500">Немає візитів</td>
+                            <td colspan="5" class="py-4 text-zinc-500">Немає візитів</td>
                         </tr>
                     @endforelse
                 </tbody>

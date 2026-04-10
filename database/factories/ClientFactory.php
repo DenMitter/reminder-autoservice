@@ -2,6 +2,8 @@
 
 namespace Database\Factories;
 
+use App\Models\Client;
+use App\Models\ClientVehicle;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -24,5 +26,21 @@ class ClientFactory extends Factory
             'car_number' => fake()->optional()->bothify('AA####AA'),
             'notes' => fake()->optional()->sentence(),
         ];
+    }
+
+    public function configure(): static
+    {
+        return $this->afterCreating(function (Client $client): void {
+            if ($client->vehicles()->exists() || blank($client->car_brand) || blank($client->car_model)) {
+                return;
+            }
+
+            ClientVehicle::query()->create([
+                'client_id' => $client->id,
+                'car_brand' => $client->car_brand,
+                'car_model' => $client->car_model,
+                'car_number' => $client->car_number,
+            ]);
+        });
     }
 }
